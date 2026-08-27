@@ -1,0 +1,20 @@
+{
+  "name": "debate-intelligence-3-mcp",
+  "version": "3.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vercel dev",
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.17.4",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "vercel": "^46.1.1"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
