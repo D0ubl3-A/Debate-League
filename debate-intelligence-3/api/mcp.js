@@ -29,7 +29,7 @@ const EDITORIAL_POLICY = {
 function buildServer() {
   const server = new McpServer({
     name: 'Debate Intelligence 3.0',
-    version: '3.1.0',
+    version: '3.1.1',
   });
 
   server.tool(
@@ -255,6 +255,7 @@ function buildServer() {
         hashtags: ['#Debate', '#Politics', '#Conservative', '#UnhingedPodcast', '#TwoMenOneNation'],
         thumbnail_brief: 'Two-host confrontation composition; 3–5 word tension phrase; one recognizable topic visual; high facial emotion; do not use misleading evidence imagery.',
         facts,
+        default_visibility: 'unlisted',
         accuracy_guard: 'Unsupported conservative factual claims must be corrected, reframed as opinion, or omitted before packaging.',
       },
     }),
@@ -262,7 +263,7 @@ function buildServer() {
 
   server.tool(
     'upload_youtube_private',
-    'Use this when uploading a finished video privately for review. Requires a configured YouTube OAuth adapter; this server will not fake a successful upload.',
+    'Use this when uploading a finished video for review. The requested YouTube visibility is unlisted by default. Requires a configured YouTube OAuth adapter; this server will not fake a successful upload.',
     {
       title: z.string(),
       description: z.string(),
@@ -272,13 +273,13 @@ function buildServer() {
     async (input) => {
       const missing = needEnv(['YOUTUBE_CLIENT_ID', 'YOUTUBE_CLIENT_SECRET', 'YOUTUBE_REFRESH_TOKEN']);
       if (missing) return missing;
-      return jsonText({ ok: false, error: 'youtube_upload_adapter_not_connected', requested: { ...input, visibility: 'private' } });
+      return jsonText({ ok: false, error: 'youtube_upload_adapter_not_connected', requested: { ...input, visibility: 'unlisted' } });
     },
   );
 
   server.tool(
     'publish_youtube_video',
-    'Use this only after explicit human approval to change a previously uploaded private YouTube video to public. Never call without approval=true.',
+    'Use this only after explicit human approval to set a previously uploaded YouTube video to unlisted. Never make it public through this tool. Never call without approval=true.',
     {
       video_id: z.string(),
       approval: z.literal(true),
@@ -286,7 +287,7 @@ function buildServer() {
     async ({ video_id }) => {
       const missing = needEnv(['YOUTUBE_CLIENT_ID', 'YOUTUBE_CLIENT_SECRET', 'YOUTUBE_REFRESH_TOKEN']);
       if (missing) return missing;
-      return jsonText({ ok: false, error: 'youtube_publish_adapter_not_connected', video_id });
+      return jsonText({ ok: false, error: 'youtube_publish_adapter_not_connected', video_id, requested_visibility: 'unlisted' });
     },
   );
 
