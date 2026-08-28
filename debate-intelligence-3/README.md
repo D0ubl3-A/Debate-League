@@ -21,17 +21,19 @@ https://unhinged-podcast-mcp.viraldebates.chatgpt.site/api/mcp
 
 ## Tool surface
 
-1. `discover_conservative_news` — source-backed Google News discovery through SerpAPI.
-2. `create_news_reaction_run` — converts a sourced story into a debate/reaction rundown.
-3. `create_debate_episode_run` — builds episode rounds and host cross-examination prompts.
-4. `save_claim_ledger` — normalizes claims for an episode.
-5. `get_claim_audit` — prepares a source/evidence-first fact-check record without inventing a verdict.
-6. `save_clip_candidates` — saves scored viral-clip candidates as pending approval.
-7. `approve_clips` — explicit human approval gate for selected clips.
-8. `generate_elevenlabs_voiceover` — ElevenLabs TTS after approval.
-9. `create_youtube_package` — titles, description outline, hashtags and thumbnail brief.
-10. `upload_youtube_private` — gated private-upload integration point.
-11. `publish_youtube_video` — explicit approval gate for public publishing.
+1. `plan_chatgpt_search` — prepares current-news, claim-verification, debate, competitor, YouTube, or general research for ChatGPT's built-in web search.
+2. `ingest_chatgpt_search_results` — accepts only real sources ChatGPT found and opened, preserves citations and timestamps, and routes grounded findings into production.
+3. `discover_conservative_news` — optional source-backed Google News discovery through SerpAPI when explicitly requested and configured.
+4. `create_news_reaction_run` — converts a sourced story into a debate/reaction rundown.
+5. `create_debate_episode_run` — builds episode rounds and host cross-examination prompts.
+6. `save_claim_ledger` — normalizes claims for an episode.
+7. `get_claim_audit` — prepares a source/evidence-first fact-check record without inventing a verdict.
+8. `save_clip_candidates` — saves scored viral-clip candidates as pending approval.
+9. `approve_clips` — explicit human approval gate for selected clips.
+10. `generate_elevenlabs_voiceover` — ElevenLabs TTS after approval.
+11. `create_youtube_package` — titles, description outline, hashtags and thumbnail brief.
+12. `upload_youtube_private` — gated private-upload integration point.
+13. `publish_youtube_video` — explicit approval gate for publishing.
 
 ## Configuration
 
@@ -52,7 +54,8 @@ Then configure the public hostname to route to that deployment and smoke-test `/
 
 ## Production gates
 
-- News must come from returned source URLs; do not invent stories.
+- Live research should use `plan_chatgpt_search`, ChatGPT web search, and `ingest_chatgpt_search_results` in that order.
+- News must come from URLs ChatGPT actually found and opened, or from the configured SERP adapter; do not invent stories.
 - Claim audits should remain `insufficient_evidence` or `needs_human_or_model_review` until evidence is checked.
 - Voiceover requires `approval: true`.
 - Clip approval requires `approval: true`.

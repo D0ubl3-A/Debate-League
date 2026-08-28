@@ -36,9 +36,68 @@ const VISUAL_POLICY = {
 };
 
 function buildServer() {
-  const server = new McpServer({ name:'Debate Intelligence 3.0', version:'3.2.0' });
+  const server = new McpServer(
+    { name:'Debate Intelligence 3.0', version:'3.3.0' },
+    { instructions:'Use ChatGPT web search as the primary live-research engine. First call plan_chatgpt_search, then use the host ChatGPT web-search capability, then call ingest_chatgpt_search_results with the real sources. Never invent URLs, timestamps, quotes, trend metrics, or search results. Use discover_conservative_news only when a separately configured SERP adapter is explicitly requested.' }
+  );
 
-  server.tool('discover_conservative_news','Find current high-engagement news topics. In ChatGPT, prefer ChatGPT web search as the research layer; the optional SERP adapter must never fabricate results.',{
+  server.tool('plan_chatgpt_search','Use this first when the user wants current news, source discovery, claim verification, competitor research, YouTube topic research, or evidence gathering. It creates a host-search plan; ChatGPT must perform the actual web search with its own search capability.',{
+    query:z.string().min(2).max(500),
+    purpose:z.enum(['current_news','claim_verification','debate_research','youtube_strategy','competitor_research','general_research']).default('general_research'),
+    recency_days:z.number().int().min(1).max(3650).optional(),
+    max_sources:z.number().int().min(1).max(20).default(8)
+  }, async ({query,purpose,recency_days,max_sources})=>jsonText({
+    ok:true,
+    status:'chatgpt_search_required',
+    search_engine:'ChatGPT web search',
+    query,
+    purpose,
+    recency_days:recency_days||null,
+    max_sources,
+    next_action:'ChatGPT should now use its built-in web search, open the strongest primary or authoritative sources, and then call ingest_chatgpt_search_results.',
+    evidence_requirements:[
+      'Use only URLs actually returned and opened by ChatGPT search.',
+      'Prefer primary sources and direct records; use reputable reporting for context.',
+      'Record published_at when available and retrieved_at for every source.',
+      'Separate facts, allegations, opinions, predictions, rhetoric, and unanswered questions.',
+      'Do not invent popularity, search volume, virality, quotes, statistics, or verdicts.'
+    ],
+    editorial_policy:EDITORIAL_POLICY
+  }));
+
+  server.tool('ingest_chatgpt_search_results','Use this after ChatGPT completes web research. Accept only real sources ChatGPT actually found and opened, then normalize them for news reactions, fact-checks, debate preparation, clips, and YouTube packaging.',{
+    query:z.string().min(2).max(500),
+    purpose:z.enum(['current_news','claim_verification','debate_research','youtube_strategy','competitor_research','general_research']).default('general_research'),
+    results:z.array(z.object({
+      title:z.string().min(1),
+      url:z.string().url(),
+      source:z.string().min(1),
+      published_at:z.string().optional(),
+      retrieved_at:z.string().min(1),
+      summary:z.string().min(1),
+      source_type:z.enum(['primary','government','court_record','research','official_statement','news_report','video','social_post','other']).default('other'),
+      supports:z.array(z.string()).default([]),
+      contradicts:z.array(z.string()).default([])
+    })).min(1).max(20)
+  }, async ({query,purpose,results})=>jsonText({
+    ok:true,
+    query,
+    purpose,
+    search_engine:'ChatGPT web search',
+    result_count:results.length,
+    results,
+    production_handoff:{
+      current_news:'Use create_news_reaction_run with one verified source at a time.',
+      claim_verification:'Use get_claim_audit with the evidence URLs and notes.',
+      debate_research:'Build claim/evidence packets before create_debate_episode_run.',
+      youtube_strategy:'Use create_youtube_package only with supported facts; do not claim measured search volume unless a source provides it.',
+      competitor_research:'Compare observable titles, formats, publishing patterns, and engagement figures only when directly sourced.',
+      general_research:'Summarize with citations and clearly label uncertainty.'
+    },
+    editorial_policy:EDITORIAL_POLICY
+  }));
+
+  server.tool('discover_conservative_news','Optional direct SERP adapter for current conservative-interest news. Prefer plan_chatgpt_search plus ChatGPT web search unless the user explicitly requests the configured SERP provider. Never fabricate results.',{
     query:z.string().default('US politics culture war immigration education free speech'), limit:z.number().int().min(1).max(20).default(10)
   }, async ({query,limit}) => {
     const key = process.env.SERP_API_KEY || process.env.SERPAPI_API_KEY;
