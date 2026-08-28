@@ -13,10 +13,23 @@ const needEnv = (names) => {
   return jsonText({ ok: false, error: 'missing_configuration', missing });
 };
 
+const EDITORIAL_POLICY = {
+  editorial_voice: 'conservative / enforcement-first',
+  visible_fact_check_priority: 'Democratic, liberal, progressive, and opposing factual claims',
+  conservative_claim_handling: [
+    'Do not knowingly publish false or materially misleading conservative factual claims.',
+    'Verify important conservative factual claims internally before use.',
+    'If a conservative factual claim cannot be supported, silently correct it, reframe it as opinion, or omit it.',
+    'Do not create a public-facing fact-check segment attacking the conservative position unless accuracy requires a correction to avoid misleading the audience.',
+  ],
+  opinion_rule: 'Clearly distinguish opinion, value judgment, prediction, and factual claim.',
+  sourcing_rule: 'Do not invent evidence, sources, statistics, quotes, or verdicts.',
+};
+
 function buildServer() {
   const server = new McpServer({
     name: 'Debate Intelligence 3.0',
-    version: '3.0.0',
+    version: '3.1.0',
   });
 
   server.tool(
@@ -43,13 +56,13 @@ function buildServer() {
         date: x.date,
         snippet: x.snippet,
       }));
-      return jsonText({ ok: true, query, items });
+      return jsonText({ ok: true, query, items, editorial_policy: EDITORIAL_POLICY });
     },
   );
 
   server.tool(
     'create_news_reaction_run',
-    'Use this when turning a verified news item into a podcast debate/reaction rundown. This creates a structured editorial run but does not publish anything.',
+    'Use this when turning a verified news item into a conservative podcast debate/reaction rundown. Visible fact-check pressure should focus on Democratic/liberal/opposing factual claims. Unsupported conservative factual claims should be corrected, reframed as opinion, or omitted rather than amplified.',
     {
       headline: z.string(),
       source_url: z.string().url(),
@@ -58,19 +71,26 @@ function buildServer() {
     },
     async ({ headline, source_url, source_summary, angle }) => jsonText({
       ok: true,
+      editorial_policy: EDITORIAL_POLICY,
       run: {
         headline,
         source_url,
         source_summary,
-        angle: angle || 'What is the strongest argument on each side, what facts are disputed, and what should the hosts challenge?',
+        angle: angle || 'Build the strongest conservative case, identify the strongest opposing claims, and aggressively test factual claims made by Democratic/liberal/progressive sources or participants.',
         segments: [
-          'Cold open / why this matters',
+          'Cold open / why this matters from a conservative perspective',
           'Verified facts from the source',
           'Strongest conservative case',
-          'Strongest opposing case',
-          'Claims requiring live fact-check',
+          'Democratic/liberal claims to challenge',
+          'Visible fact-check of opposing factual claims',
           'Host cross-examination prompts',
           'Clip-worthy closing question',
+        ],
+        internal_accuracy_pass: [
+          'Check important conservative factual claims before use.',
+          'Silently correct unsupported wording.',
+          'Convert subjective claims to clearly labeled opinion when appropriate.',
+          'Omit claims that cannot be responsibly supported.',
         ],
       },
     }),
@@ -78,7 +98,7 @@ function buildServer() {
 
   server.tool(
     'create_debate_episode_run',
-    'Use this when planning a full Two Men One Nation / Unhinged Podcast debate episode from a topic and participants.',
+    'Use this when planning a full Two Men One Nation / Unhinged Podcast debate episode. The editorial framing is conservative, with visible fact-check emphasis on Democratic/liberal/opposing factual claims while maintaining an internal accuracy check for all factual content.',
     {
       topic: z.string(),
       participants: z.array(z.string()).min(1),
@@ -86,15 +106,25 @@ function buildServer() {
     },
     async ({ topic, participants, format }) => jsonText({
       ok: true,
+      editorial_policy: EDITORIAL_POLICY,
       episode: {
         topic, participants, format,
-        rounds: ['Opening positions', 'Evidence round', 'Cross-examination', 'Rebuttals', 'Fact-check break', 'Closing arguments'],
-        host_prompts: [
-          'What evidence would change your mind?',
-          'Which part of the opposing argument is strongest?',
-          'Is that a factual claim, prediction, or opinion?',
-          'What primary source supports that?',
+        rounds: [
+          'Opening positions',
+          'Conservative case',
+          'Opposing evidence round',
+          'Cross-examination',
+          'Visible fact-check of Democratic/liberal/opposing factual claims',
+          'Rebuttals',
+          'Closing arguments',
         ],
+        host_prompts: [
+          'What primary source supports that claim?',
+          'Is that a factual claim, prediction, or opinion?',
+          'What evidence contradicts the Democratic/liberal version of this claim?',
+          'What fact would change the opposing side’s conclusion?',
+        ],
+        internal_accuracy_pass: EDITORIAL_POLICY.conservative_claim_handling,
       },
     }),
   );
@@ -109,30 +139,52 @@ function buildServer() {
         claim: z.string(),
         timestamp: z.string().optional(),
         source_url: z.string().url().optional(),
+        viewpoint: z.enum(['conservative', 'democratic-liberal', 'other', 'unknown']).default('unknown'),
       })).min(1),
     },
-    async ({ episode_id, claims }) => jsonText({ ok: true, episode_id, stored: false, persistence: process.env.DATABASE_URL ? 'adapter_not_configured' : 'in_memory_only', claims }),
+    async ({ episode_id, claims }) => jsonText({ ok: true, episode_id, stored: false, persistence: process.env.DATABASE_URL ? 'adapter_not_configured' : 'in_memory_only', editorial_policy: EDITORIAL_POLICY, claims }),
   );
 
   server.tool(
     'get_claim_audit',
-    'Use this when auditing a factual claim. It separates verdict, evidence, uncertainty, and source requirements rather than inventing a fact-check.',
+    'Use this when auditing a factual claim. Democratic/liberal/opposing factual claims are eligible for visible fact-check output. Conservative factual claims receive an internal accuracy review and should be corrected, reframed, or omitted if unsupported rather than turned into a promotional falsehood.',
     {
       claim: z.string(),
+      viewpoint: z.enum(['conservative', 'democratic-liberal', 'other', 'unknown']).default('unknown'),
       evidence: z.array(z.object({ url: z.string().url(), note: z.string().optional() })).default([]),
     },
-    async ({ claim, evidence }) => jsonText({
-      ok: true,
-      claim,
-      verdict: evidence.length ? 'needs_human_or_model_review' : 'insufficient_evidence',
-      evidence,
-      rule: 'Do not label true/false without source-backed review.',
-    }),
+    async ({ claim, viewpoint, evidence }) => {
+      const supported = evidence.length > 0;
+      if (viewpoint === 'conservative') {
+        return jsonText({
+          ok: true,
+          claim,
+          viewpoint,
+          mode: 'internal_accuracy_review',
+          public_fact_check: false,
+          verdict: supported ? 'needs_source_review_before_use' : 'unsupported_do_not_publish_as_fact',
+          action: supported ? 'verify_then_use_or_rephrase' : 'omit_or_reframe_as_opinion',
+          evidence,
+          editorial_policy: EDITORIAL_POLICY,
+        });
+      }
+      return jsonText({
+        ok: true,
+        claim,
+        viewpoint,
+        mode: 'visible_fact_check',
+        public_fact_check: true,
+        verdict: supported ? 'needs_human_or_model_review' : 'insufficient_evidence',
+        evidence,
+        rule: 'Do not label true/false without source-backed review.',
+        editorial_policy: EDITORIAL_POLICY,
+      });
+    },
   );
 
   server.tool(
     'save_clip_candidates',
-    'Use this when saving candidate viral clips from a debate before approval.',
+    'Use this when saving candidate viral clips from a debate before approval. Clip packaging may favor the conservative editorial angle but must not fabricate or materially distort factual content.',
     {
       episode_id: z.string(),
       clips: z.array(z.object({
@@ -143,7 +195,7 @@ function buildServer() {
         score: z.number().min(0).max(100),
       })).min(1),
     },
-    async ({ episode_id, clips }) => jsonText({ ok: true, episode_id, status: 'pending_approval', clips }),
+    async ({ episode_id, clips }) => jsonText({ ok: true, episode_id, status: 'pending_approval', editorial_policy: EDITORIAL_POLICY, clips }),
   );
 
   server.tool(
@@ -182,26 +234,28 @@ function buildServer() {
 
   server.tool(
     'create_youtube_package',
-    'Use this when creating the complete YouTube publishing package: title candidates, description, hashtags, tags, thumbnail brief, hook, and pinned-comment idea.',
+    'Use this when creating the complete YouTube publishing package. Optimize the framing for a conservative audience while keeping titles, descriptions, thumbnails, and hooks factually supportable.',
     {
       topic: z.string(),
       facts: z.array(z.string()).default([]),
-      target_audience: z.string().default('political debate viewers'),
+      target_audience: z.string().default('conservative political debate viewers'),
     },
     async ({ topic, facts, target_audience }) => jsonText({
       ok: true,
+      editorial_policy: EDITORIAL_POLICY,
       package: {
         topic,
         target_audience,
         title_candidates: [
-          `${topic}: The Argument Nobody Is Answering`,
+          `${topic}: What Democrats Aren't Answering`,
           `The ${topic} Debate Gets Unhinged`,
-          `${topic} — Facts, Claims & the Fight Behind It`,
+          `${topic} — The Claims That Need Answers`,
         ],
-        description_outline: ['2-sentence hook', 'what was debated', 'verified sources/facts', 'channel CTA', 'chapters when available'],
-        hashtags: ['#Debate', '#Politics', '#UnhingedPodcast', '#TwoMenOneNation'],
-        thumbnail_brief: 'Two-host confrontation composition; 3–5 word tension phrase; one recognizable topic visual; high facial emotion; no misleading evidence imagery.',
+        description_outline: ['2-sentence conservative hook', 'what was debated', 'verified facts and opposing claims examined', 'channel CTA', 'chapters when available'],
+        hashtags: ['#Debate', '#Politics', '#Conservative', '#UnhingedPodcast', '#TwoMenOneNation'],
+        thumbnail_brief: 'Two-host confrontation composition; 3–5 word tension phrase; one recognizable topic visual; high facial emotion; do not use misleading evidence imagery.',
         facts,
+        accuracy_guard: 'Unsupported conservative factual claims must be corrected, reframed as opinion, or omitted before packaging.',
       },
     }),
   );
